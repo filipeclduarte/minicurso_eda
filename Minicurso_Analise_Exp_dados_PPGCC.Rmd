@@ -3,7 +3,6 @@ title: "Minicurso PPGCC - Análise Exploratória de Dados"
 output: html_notebook
 ---
 
-
 ## Conteúdo
 
 - 1. Importação e estruturação dos dados
@@ -226,35 +225,39 @@ Ele sempre iniciará com a função `ggplot(dados)`. Em seguida, você pode ir a
 
 O pacote `ggplot2` possui uma função para produzir uma visualização em barras:
 
-Inicie a função `ggplot(dados)` e adicione a camada de barras com:
+Inicie a função `ggplot(dados, aes(variavel))` e adicione a camada de barras com:
 
-* `geom_bar(aes(variavel))`.
+* `geom_bar()`.
 
 Você pode selecionar por group
 
 Vamos criar um gráfico de barras para a variável setores.
 ```{r}
-ggplot(dados) + 
-  geom_bar(aes(setor_economico_bovespa))
+# Gráfico de barras em x
+ggplot(dados, aes(x = setor_economico_bovespa)) + 
+  geom_bar()
 ```
 
 Para modificar as cores o eixo, basta adicionar `y = setor_economico_bovespa` como variável
 ```{r}
-ggplot(dados) + 
-  geom_bar(aes(y = setor_economico_bovespa))
+# Gráfico de barras em y
+ggplot(dados, aes(y = setor_economico_bovespa)) + 
+  geom_bar()
 ```
 
 ```{r}
 # Sua vez: Faça o gráfico de barras para a variável ano
-
+ggplot(dados, aes(y = ano)) + 
+  geom_bar()
 ```
 
 Se quiseres adicionar cores, vamos usar o mapeamento da estética dentro da função `ggplot` com o argumento `fill = setor_economico_bovespa` . Dessa maneira ele preenche com cores.
 
 ```{r}
+# Gráfico de barras com cores para os setores
 ggplot(dados, aes(y= setor_economico_bovespa, fill = setor_economico_bovespa)) + 
   geom_bar() + 
-  guides(fill = FALSE) # remover a legenda das cores. 
+  guides(fill = FALSE) # remover a legenda das cores
 ```
 
 #### 3.2 Gráfico Histograma 
@@ -265,25 +268,45 @@ Função: `geom_histogram()`
 
 **Histograma da variável roa**
 ```{r}
-ggplot(dados) + 
-  geom_histogram(aes(roa))
+# Histograma do ROA
+ggplot(dados, aes(roa)) + 
+  geom_histogram()
 ```
 
-Não ficou legal pq automaticamente porque esses dados apresentam dados extremos. 
+Não ficou legal porque esses dados contém outliers.
 
-Vamos fazer um filtro entre -1 < roa < 1 Para ver melhor. Isso não quer dizer que seria a melhor forma de se trabalhar com esses dados. 
+Vamos usar um filtro. Utilizaremos o intervalo $-1.5 * IQR < X < 1.5 * IQR$ 
+Em que IQR é o interquartílico = 3º Quartil - 1º Quartil.
+
+Obs.:Isso não quer dizer que seria a melhor forma de se trabalhar com esses dados. 
 
 ```{r}
-d <- dados %>% 
-  filter(roa > -1 & roa < 1)
+# Roa max e min com base em 1.5 * IQR
+roa_max <- 1.5*IQR(dados$roa)
+roa_min <- -1.5*IQR(dados$roa)
 
-ggplot(d) + 
-  geom_histogram(aes(roa))
+# Filtro
+dados <- dados %>% 
+  filter(roa > roa_min & roa < roa_max)
+# Gráfico
+ggplot(dados, aes(roa)) + 
+  geom_histogram()
 ```
 
-```{r}
-# Sua vez: crie um histograma da variável market-to-book. 
 
+
+```{r}
+# Crie um histograma da variável market-to-book. Verifique a distribuição e, caso necessário, aplique o filtro para remover outliers. 
+mb_max <- 1.5*IQR(dados$market_to_book)
+mb_min <- -1.5*IQR(dados$market_to_book)
+
+# filtro
+dados <- dados %>% 
+  filter(market_to_book>mb_min & market_to_book<mb_max)
+
+# gráfico
+ggplot(dados, aes(market_to_book))+
+  geom_histogram()
 ```
 
 
@@ -292,85 +315,97 @@ ggplot(d) +
 Detalha a distribuição dos dados identificando os valores máximos e mínimos dentro do intervalo de confiança, 1º e 3º quartis e mediana. 
 
 ```{r}
-ggplot(d) + 
-  geom_boxplot(aes(y= ativo_total))
+# Boxplot do ativo total
+ggplot(d, aes(y=ativo_total)) + 
+  geom_boxplot()
 ```
 Verificamos que esses dados muitos valores extremos. Além disso, é possível criar boxplot por grupos de setores ou trimestres.
 
 A pergunta poderia ser: O ROA varia entre os setores econômicos bovespa?
 
 ```{r}
-ggplot(d, aes(ativo_total, fill = setor_economico_bovespa)) + 
+# boxplot do ROA em funcao dos setores
+ggplot(dados, aes(x = ativo_total, fill = setor_economico_bovespa)) + 
   geom_boxplot() 
-
 ```
-Sua vez: Responda a pergunta: O Endividamento das empresas varia entre os setores?
+
+Responda a pergunta: O Endividamento varia entre os trimestres?
 
 ```{r}
+# Endividamento diferente entre os setores
+ggplot(dados, aes(x = endividamento, fill = trimestre)) + 
+  geom_boxplot()
+```
 
+É preciso realizar um filtro para visualizar de forma adequada. 
+
+```{r}
+# filtro do endividamento dentro do IQR
+endiv_max <- 1.5*IQR(dados$endividamento)
+endiv_min <- -1.5*IQR(dados$endividamento)
+
+dados <- dados %>% 
+  filter(endividamento > endiv_min & endividamento < endiv_max)
+
+# gráfico
+ggplot(dados, aes(x = endividamento, fill = trimestre))+
+  geom_boxplot()
 ```
 
 #### 3.4. Gráfico de dispersão
 
 O gráfico de dispersão é utilizado desejamos criar um gráfico a partir de duas variáveis quantitativas. 
 
-* geom_point() 
+* `geom_point()`
 
 Vamos visualizar o roa em função do endividamento:
-
 ```{r}
-ggplot(d) + 
-  geom_point(aes(x = endividamento, y = ativo_total))
-```
-
-Outliers dificultam a visualização. 
-Vamos filtrar endividamento entre 0.10 e 2.0.
-
-```{r}
-e <- d %>% 
-  filter(endividamento>0.1, 
-         endividamento<2)
-
-ggplot(e) + 
-  geom_point(aes(x = endividamento, y = ativo_total))
-```
-
-Vamos visualizar por setores:
-
-```{r}
-ggplot(e, aes(x = endividamento, y = ativo_total, colour = setor_economico_bovespa)) + 
-  geom_point() + 
-  geom_smooth(method = lm) # adicionar regressão linear
-```
-
-Verifique a relação entre ativo total e margem_operacional e detalhe os setores.
-
-```{r}
-ggplot(e, aes(x = ativo_total, y = margem_operacional, colour = setor_economico_bovespa)) + 
+ggplot(dados, aes(x = endividamento, y = roa)) + 
   geom_point()
-
 ```
 
-Filtraremos:
-- Margem Operacional entre -2.5 e 2.5 
-- MB entre -10 e 10.
+Não conseguimos verificar um padrão. É necessário investigar se difere entre os setores. Utilizaremos o parâmetro `colour`. 
 
 ```{r}
+ggplot(dados, aes(x = endividamento, y = roa, colour = setor_economico_bovespa)) + 
+  geom_point()
+```
 
-m <- e %>% 
-  filter(market_to_book > -10,
-         market_to_book < 10,
-         margem_operacional > -2.5, 
-         margem_operacional < 2.5)
+Ainda fica difícil investigar diferenças. 
+Podemos adicionar retas de regressões lineares, a partir da função `geom_smooth(method = lm)`.
 
-ggplot(m, aes(x = ativo_total, y = margem_operacional, colour = setor_economico_bovespa)) + 
+```{r}
+ggplot(dados, aes(x = endividamento, y = roa, colour = setor_economico_bovespa)) + 
+  geom_point() +
+  geom_smooth(method = lm)
+```
+
+Nota-se, portanto, que as retas diferem entre os setores, o que poderia indicar diferentes relações do endividamento e roa. 
+
+Agora, verifique a relação entre ativo total e margem_operacional e detalhe os setores.
+
+```{r}
+ggplot(dados, aes(x = ativo_total, y = margem_operacional, colour = setor_economico_bovespa)) + 
+  geom_point()
+# Precisamos tratar os outliers da margem operacional
+margem_max <- 1.5*IQR(dados$margem_operacional)
+margem_min <- -1.5*IQR(dados$margem_operacional)
+
+dados <- dados %>% 
+  filter(margem_operacional>margem_min & margem_operacional<margem_max)
+
+ggplot(dados, aes(x = ativo_total, y = margem_operacional, colour = setor_economico_bovespa)) + 
+  geom_point()
+```
+Vamos adicionar as retas. 
+```{r}
+# Vamos adicionar as retas de regressão.
+ggplot(dados, aes(x = ativo_total, y = margem_operacional, colour = setor_economico_bovespa)) + 
   geom_point() + 
   geom_smooth(method = lm)
 
-
-ggplot(m, aes(x = roa, y = market_to_book, colour = setor_economico_bovespa)) + 
+#Por fim veremos a relação entre endividamento e margem operacional
+ggplot(dados, aes(x = endividamento, y = margem_operacional, colour = setor_economico_bovespa)) + 
   geom_point() + 
   geom_smooth(method = lm)
-
-
 ```
