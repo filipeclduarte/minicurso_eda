@@ -1,0 +1,376 @@
+---
+title: "Minicurso PPGCC - Análise Exploratória de Dados"
+output: html_notebook
+---
+
+
+## Conteúdo
+
+- 1. Importação e estruturação dos dados
+- 2. Estatísticas Descritivas
+- 3. Visualizações
+
+### 1. Importando bibliotecas e dados
+```{r}
+# bibliotecas
+library(readr) # ler dados 
+library(dplyr) # manipulação de dados
+library(fastDummies) # criação de variáveis dummies
+library(magrittr) # operador pipe %>%  
+library(zoo) # para trabalhar com datas
+library(ggplot2) # visualizações
+
+# importando dados
+df <- read_csv('dados_minicurso_ppgcc.csv')
+
+# visualizar a estrutura dos dados
+glimpse(df)
+```
+
+Transformar a coluna referente à data no formato datetime:
+```{r}
+# transformar data em formato de datetime
+df$data <- zoo::as.yearmon(df$data)
+# verificar a estrutura novamente
+df %>% 
+  glimpse()
+
+```
+Vamos criar variáveis:
+
+- ano
+- trimestre
+- Criaremos uma variável de receita em t-1
+- logaritmo do Ativo Total
+- market to book = Valor de Mercado / PL t-1
+- endividamento = (TotEmprestimosCP + TotEmprestimosLP) / Ativo_t-1
+- ROA = LucroLiquido/Ativo_t-1
+- Margem Operacional = EBIT/Receita
+- Vamos escalonar algumas variáveis pelo Ativo Total em t-1
+
+Precisamos remover as empresas que possuem Ativo Total, PL e Receita iguais a zero. 
+```{r}
+dados <- df %>% 
+  arrange(Nome) %>% 
+  group_by(Nome) %>% 
+  filter(AtivoTot != 0,
+         PtLqCo != 0, 
+         Receita != 0) %>% 
+  mutate(trimestre = factor(lubridate::month(data), levels = c('3', '6', '9', '12'),
+                            labels = c('Q1', 'Q2', 'Q3', 'Q4')), # vai extrair apenas o mês das datas
+         ano = lubridate::year(data), 
+         ativo_total = log(AtivoTot),
+         receita = Receita/dplyr::lag(AtivoTot),
+         market_to_book = ValorMercado/dplyr::lag(PtLqCo),
+         endividamento = (TotEmFiCP + TotEmFiLP)/dplyr::lag(AtivoTot),
+         roa = LucroLiquido/dplyr::lag(AtivoTot),
+         margem_operacional = EBIT/Receita) %>% 
+  ungroup() %>% 
+  select(Nome, setor_economico_bovespa, ano, trimestre, ativo_total, receita, market_to_book, endividamento, 
+         roa, margem_operacional) %>% 
+  na.omit()
+```
+### 2. Estatística descritiva
+
+Envolve utilizar a estatística descritiva e visualização para responder perguntas do tipo:
+
+- Empresas maiores possuem maior rentabilidade (roa)?
+
+- A receita da empresa está correlacionada ao ROA?
+
+- Existe diferença de receita entre os trimestres?
+
+Para tanto, precisamos calcular as estatísticas descritivas, tais como:
+
+- Média: `mean`
+- Mediana: `median`
+- Desvio Padrão: `sd`
+- Variância: `var`
+- Correlação: `cor` 
+
+Vamos aprender como calcular cada uma dessas estatísticas. 
+
+Antes de apresentar as diversas funções para calcular as estatística, vamos aprender a resumir os dados. A função básico é `summary`. 
+
+Essa função nos mostra o resumo das estatísticas descritivas como mínimo, máximo, média, mediana etc. 
+
+```{r}
+summary(dados)
+```
+Contudo, se quiseres ser mais específico, é preciso que especifique qual ou quais as funções de interesse. Vejamos a seguir como trabalhar com essas funções.  
+
+#### Média
+
+```{r}
+mean(dados$ativo_total)
+mean(dados$receita)
+mean(dados$market_to_book)
+#...
+```
+
+Posso utilizar a função `summarise_if` para aplicar a média nas variáveis quantitativas.
+
+```{r}
+dados %>% 
+  summarise_if(is.numeric, mean)
+```
+
+#### Desvio padrão
+
+```{r}
+sd(dados$endividamento)
+sd(dados$roa)
+sd(dados$margem_operacional)
+```
+
+Podemos utilizar a mesma lógica que fizemos para a média:
+
+```{r}
+dados %>% 
+  summarise_if(is.numeric, sd)
+```
+
+Até o momento, o trabalho ainda está bem braçal e muito genérico. Se quisermos saber se haveria variação na média entre para os trimestres? Precisamos agrupar por trimestres e, em seguida, aplicar as funções estatísticas. Vamos remover a variável ano da tabela gerada, haja vista ela pouco importa na análise da média. 
+
+```{r}
+dados %>% 
+  group_by(trimestre) %>% 
+  summarise_if(is.numeric, mean) %>% 
+  select(-ano)
+```
+Alguma variável demonstra diferenças entre os trimestres?
+
+Quanto ao desvio padrão?
+
+```{r}
+dados %>% 
+  group_by(trimestre) %>% 
+  summarise_if(is.numeric, sd) %>% 
+  select(-ano)
+```
+
+Se eu quiser calcular diversas estatísticas de uma só vez? Para isso é importante criarmos uma função:
+
+```{r}
+estatisticas <- function(x){
+  x <- x[!is.na(x)] # isso serve para que ele omita as observações com NA
+  me <- mean(x)
+  med <- median(x)
+  n <- length(x)
+  s <- sd(x)
+  mi <- min(x)
+  ma <- max(x)
+  q25 <- quantile(x, probs = 0.25)
+  q75 <- quantile(x, probs = 0.75)
+  return(c(n = n, media = me, mediana = med, desvio = s, 
+           Q = q25, Q = q75, min = mi, max = ma))
+}
+```
+
+Essa função calculará a média, mediana, quantidade, desvio padrão, mínimo, máximo, 1º e 3º quartis.
+
+```{r}
+dados %>% 
+  summarise_if(is.numeric, estatisticas) %>% 
+  select(-ano) 
+```
+
+Não ficou legal porque não sabemos o que cada linha significa. Para resolver esse problema, vamos utilizar a função `apply()`. Ela serve para aplicar uma função qualquer a uma determinada dimensão (linhas ou colunas) do nosso dataframe. 
+
+```{r}
+dados %>% 
+  select_if(is.numeric) %>% 
+  select(-ano) %>% 
+  apply(MARGIN = 2, estatisticas)
+```
+
+Por fim, se quisermos saber as estatísticas por trimestres ou por setores?
+
+Podemos utilizar a função `by(dados, grupo, estatistica)`. 
+Vamos criar uma função que faz um apply da função estatística nos dados. 
+
+```{r}
+apply_estatisticas <- function(x){
+  apply(x, 2, estatisticas)
+}
+
+# vamos criar um vetor com os nomes das variáveis quantitativas, exceto  ano.
+quant_vars <- dados %>% 
+                select(-ano) %>% 
+                select_if(is.numeric) %>% 
+                colnames()
+
+
+# em seguida, aplicaremos essa função nas variáveis quantitativas pelo grupo selecionado
+by(dados[, quant_vars], dados$trimestre, apply_estatisticas)
+```
+
+
+### 3. Visualizações
+
+Envolve a produção de gráficos para entender o comportamento dos dados. 
+Além disso, serve para produzir perguntas e talvez respondê-las. 
+
+Podemos produzir diversos gráficos:
+- Barras
+- Histograas
+- Box-plot
+- dispersão 
+- linha
+
+Vamos utilizar o pacote `ggplot2` que facilita a produção dos gráficos. 
+
+Ele sempre iniciará com a função `ggplot(dados)`. Em seguida, você pode ir adicionando camadas ao gráfico da forma como desejares. 
+
+#### 3.1 Gráfico de Barras
+
+O pacote `ggplot2` possui uma função para produzir uma visualização em barras:
+
+Inicie a função `ggplot(dados)` e adicione a camada de barras com:
+
+* `geom_bar(aes(variavel))`.
+
+Você pode selecionar por group
+
+Vamos criar um gráfico de barras para a variável setores.
+```{r}
+ggplot(dados) + 
+  geom_bar(aes(setor_economico_bovespa))
+```
+
+Para modificar as cores o eixo, basta adicionar `y = setor_economico_bovespa` como variável
+```{r}
+ggplot(dados) + 
+  geom_bar(aes(y = setor_economico_bovespa))
+```
+
+```{r}
+# Sua vez: Faça o gráfico de barras para a variável ano
+
+```
+
+Se quiseres adicionar cores, vamos usar o mapeamento da estética dentro da função `ggplot` com o argumento `fill = setor_economico_bovespa` . Dessa maneira ele preenche com cores.
+
+```{r}
+ggplot(dados, aes(y= setor_economico_bovespa, fill = setor_economico_bovespa)) + 
+  geom_bar() + 
+  guides(fill = FALSE) # remover a legenda das cores. 
+```
+
+#### 3.2 Gráfico Histograma 
+
+Serve para demonstrar o comportamento da distribuição dos dados quantitativos.
+
+Função: `geom_histogram()`
+
+**Histograma da variável roa**
+```{r}
+ggplot(dados) + 
+  geom_histogram(aes(roa))
+```
+
+Não ficou legal pq automaticamente porque esses dados apresentam dados extremos. 
+
+Vamos fazer um filtro entre -1 < roa < 1 Para ver melhor. Isso não quer dizer que seria a melhor forma de se trabalhar com esses dados. 
+
+```{r}
+d <- dados %>% 
+  filter(roa > -1 & roa < 1)
+
+ggplot(d) + 
+  geom_histogram(aes(roa))
+```
+
+```{r}
+# Sua vez: crie um histograma da variável market-to-book. 
+
+```
+
+
+#### 3.3 Gráfico box-plot
+
+Detalha a distribuição dos dados identificando os valores máximos e mínimos dentro do intervalo de confiança, 1º e 3º quartis e mediana. 
+
+```{r}
+ggplot(d) + 
+  geom_boxplot(aes(y= ativo_total))
+```
+Verificamos que esses dados muitos valores extremos. Além disso, é possível criar boxplot por grupos de setores ou trimestres.
+
+A pergunta poderia ser: O ROA varia entre os setores econômicos bovespa?
+
+```{r}
+ggplot(d, aes(ativo_total, fill = setor_economico_bovespa)) + 
+  geom_boxplot() 
+
+```
+Sua vez: Responda a pergunta: O Endividamento das empresas varia entre os setores?
+
+```{r}
+
+```
+
+#### 3.4. Gráfico de dispersão
+
+O gráfico de dispersão é utilizado desejamos criar um gráfico a partir de duas variáveis quantitativas. 
+
+* geom_point() 
+
+Vamos visualizar o roa em função do endividamento:
+
+```{r}
+ggplot(d) + 
+  geom_point(aes(x = endividamento, y = ativo_total))
+```
+
+Outliers dificultam a visualização. 
+Vamos filtrar endividamento entre 0.10 e 2.0.
+
+```{r}
+e <- d %>% 
+  filter(endividamento>0.1, 
+         endividamento<2)
+
+ggplot(e) + 
+  geom_point(aes(x = endividamento, y = ativo_total))
+```
+
+Vamos visualizar por setores:
+
+```{r}
+ggplot(e, aes(x = endividamento, y = ativo_total, colour = setor_economico_bovespa)) + 
+  geom_point() + 
+  geom_smooth(method = lm) # adicionar regressão linear
+```
+
+Verifique a relação entre ativo total e margem_operacional e detalhe os setores.
+
+```{r}
+ggplot(e, aes(x = ativo_total, y = margem_operacional, colour = setor_economico_bovespa)) + 
+  geom_point()
+
+```
+
+Filtraremos:
+- Margem Operacional entre -2.5 e 2.5 
+- MB entre -10 e 10.
+
+```{r}
+
+m <- e %>% 
+  filter(market_to_book > -10,
+         market_to_book < 10,
+         margem_operacional > -2.5, 
+         margem_operacional < 2.5)
+
+ggplot(m, aes(x = ativo_total, y = margem_operacional, colour = setor_economico_bovespa)) + 
+  geom_point() + 
+  geom_smooth(method = lm)
+
+
+ggplot(m, aes(x = roa, y = market_to_book, colour = setor_economico_bovespa)) + 
+  geom_point() + 
+  geom_smooth(method = lm)
+
+
+```
