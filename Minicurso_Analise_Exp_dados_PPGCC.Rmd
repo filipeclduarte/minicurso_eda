@@ -11,6 +11,13 @@ output: html_notebook
 
 ### 1. Importando bibliotecas e dados
 ```{r}
+install.packages("readr")
+install.packages("dplyr")
+install.packages("fastDummies")
+install.packages("magrittr")
+install.packages("zoo")
+install.packages("ggplot2")
+
 # bibliotecas
 library(readr) # ler dados 
 library(dplyr) # manipulação de dados
@@ -23,23 +30,25 @@ library(ggplot2) # visualizações
 df <- read_csv('dados_minicurso_ppgcc.csv')
 
 # visualizar a estrutura dos dados
-glimpse(df)
+df %>% 
+  glimpse()
 ```
 
 Transformar a coluna referente à data no formato datetime:
 ```{r}
 # transformar data em formato de datetime
-df$data <- zoo::as.yearmon(df$data)
+df$data <- df$data %>% 
+  as.yearmon()
+
 # verificar a estrutura novamente
 df %>% 
   glimpse()
-
 ```
 Vamos criar variáveis:
 
 - ano
 - trimestre
-- Criaremos uma variável de receita em t-1
+- Criaremos uma variável de receita em t
 - logaritmo do Ativo Total
 - market to book = Valor de Mercado / PL t-1
 - endividamento = (TotEmprestimosCP + TotEmprestimosLP) / Ativo_t-1
@@ -50,25 +59,37 @@ Vamos criar variáveis:
 Precisamos remover as empresas que possuem Ativo Total, PL e Receita iguais a zero. 
 ```{r}
 dados <- df %>% 
-  arrange(Nome) %>% 
-  group_by(Nome) %>% 
-  filter(AtivoTot != 0,
+  arrange(Nome) %>%  # ordenar o data frame pelo nome
+  group_by(Nome) %>%  # agrupar por nome
+  filter(AtivoTot != 0,  # filtros
          PtLqCo != 0, 
          Receita != 0) %>% 
-  mutate(trimestre = factor(lubridate::month(data), levels = c('3', '6', '9', '12'),
+  mutate(trimestre = factor(lubridate::month(data), levels = c('3', '6', '9', '12'), 
                             labels = c('Q1', 'Q2', 'Q3', 'Q4')), # vai extrair apenas o mês das datas
-         ano = lubridate::year(data), 
-         ativo_total = log(AtivoTot),
+         ano = lubridate::year(data), # criando a variável ano 
+         ativo_total = log(AtivoTot), # log do ativo total
          receita = Receita/dplyr::lag(AtivoTot),
          market_to_book = ValorMercado/dplyr::lag(PtLqCo),
          endividamento = (TotEmFiCP + TotEmFiLP)/dplyr::lag(AtivoTot),
          roa = LucroLiquido/dplyr::lag(AtivoTot),
          margem_operacional = EBIT/Receita) %>% 
-  ungroup() %>% 
+  ungroup() %>%  # desagrupar para depois selecionar as colunas do novo data frame
   select(Nome, setor_economico_bovespa, ano, trimestre, ativo_total, receita, market_to_book, endividamento, 
          roa, margem_operacional) %>% 
-  na.omit()
+  na.omit() # omitir os dados NA (faltantes)
+
 ```
+
+
+Para criar variáveis dummies (binárias) a partir de variáveis categóricas, utilize a função `dummy_cols(select_columns = variavel)`. Ela pode ser aplicada para mais de uma variável categórica. Para isso, identifique um vetor de variáveis. 
+
+```{r}
+# criação de variáveis dummies
+dados %>% 
+  dummy_cols(select_columns = c("setor_economico_bovespa", "trimestre"))
+```
+
+
 ### 2. Estatística descritiva
 
 Envolve utilizar a estatística descritiva e visualização para responder perguntas do tipo:
@@ -94,58 +115,79 @@ Antes de apresentar as diversas funções para calcular as estatística, vamos a
 Essa função nos mostra o resumo das estatísticas descritivas como mínimo, máximo, média, mediana etc. 
 
 ```{r}
-summary(dados)
+# verificando o resumo dos dados
+dados %>% 
+  summary()
 ```
 Contudo, se quiseres ser mais específico, é preciso que especifique qual ou quais as funções de interesse. Vejamos a seguir como trabalhar com essas funções.  
 
 #### Média
 
 ```{r}
+# média das variáveis individualmente
+dados$ativo_total %>% 
+  mean()
+dados$endividamento %>% 
+  mean()
+
 mean(dados$ativo_total)
-mean(dados$receita)
-mean(dados$market_to_book)
-#...
 ```
 
 Posso utilizar a função `summarise_if` para aplicar a média nas variáveis quantitativas.
 
 ```{r}
+# utilizar summarise_if(is.numeric, mean) para verificar as médias das var. quant. 
 dados %>% 
+  select(-ano) %>% 
   summarise_if(is.numeric, mean)
 ```
 
 #### Desvio padrão
 
 ```{r}
-sd(dados$endividamento)
-sd(dados$roa)
-sd(dados$margem_operacional)
+# função do desvio padrão
+dados$ativo_total %>% 
+  sd()
+
 ```
 
 Podemos utilizar a mesma lógica que fizemos para a média:
 
 ```{r}
+# calcular o desvio padrão de todas variáveis de uma só vez
 dados %>% 
+  select(-ano) %>% 
   summarise_if(is.numeric, sd)
 ```
 
-Até o momento, o trabalho ainda está bem braçal e muito genérico. Se quisermos saber se haveria variação na média entre para os trimestres? Precisamos agrupar por trimestres e, em seguida, aplicar as funções estatísticas. Vamos remover a variável ano da tabela gerada, haja vista ela pouco importa na análise da média. 
+Até o momento, o trabalho ainda está bem braçal e muito genérico. Se quisermos saber se houve variação na média entre para os trimestres? Precisamos agrupar por trimestres e, em seguida, aplicar as funções estatísticas. Vamos remover a variável ano da tabela gerada, haja vista ela pouco importa na análise da média. 
 
 ```{r}
-dados %>% 
-  group_by(trimestre) %>% 
-  summarise_if(is.numeric, mean) %>% 
-  select(-ano)
+# agrupar por trimestre e calcular as estatísticas 
+media_trimestre_setor <- dados %>% 
+  select(-ano) %>% 
+  group_by(trimestre, setor_economico_bovespa) %>% 
+  summarise_if(is.numeric, mean)
+
+media_trimestre_setor
+
+media_trimestre_setor %>% 
+  filter(setor_economico_bovespa != "Saúde")
+
+media_trimestre_setor %>% 
+  write_csv("media_trimestre_setor.csv")
 ```
 Alguma variável demonstra diferenças entre os trimestres?
 
 Quanto ao desvio padrão?
 
 ```{r}
+# agrupado desvio padrão
 dados %>% 
-  group_by(trimestre) %>% 
-  summarise_if(is.numeric, sd) %>% 
-  select(-ano)
+  select(-ano) %>% 
+  group_by(trimestre, setor_economico_bovespa) %>% 
+  summarise_if(is.numeric, sd)
+
 ```
 
 Se eu quiser calcular diversas estatísticas de uma só vez? Para isso é importante criarmos uma função:
@@ -169,18 +211,32 @@ estatisticas <- function(x){
 Essa função calculará a média, mediana, quantidade, desvio padrão, mínimo, máximo, 1º e 3º quartis.
 
 ```{r}
-dados %>% 
+# summarise if com a função estatisticas
+estat_df <- dados %>%  
   summarise_if(is.numeric, estatisticas) %>% 
-  select(-ano) 
+  select(-ano) %>% 
+  as.data.frame()
+
+# criando nome das estatisticas
+estat_nomes <- c("n", "média", "mediana", "desvio padrão", "Q25", "Q75", "Mínimo", "Máximo") 
+
+# atribuindo nome das estatisticas à tabela
+row.names(estat_df) <- estat_nomes
+
+# verificar a tabela
+estat_df
+
 ```
 
-Não ficou legal porque não sabemos o que cada linha significa. Para resolver esse problema, vamos utilizar a função `apply()`. Ela serve para aplicar uma função qualquer a uma determinada dimensão (linhas ou colunas) do nosso dataframe. 
+Podemos também utilizar a função `apply()`. Ela serve para aplicar uma função qualquer a uma determinada dimensão (linhas ou colunas) do nosso dataframe. 
 
 ```{r}
+# utilizando o apply, selecionando apenas as variáveis quantitativas, removendo ano em seguida e aplicando estatisticas. 
 dados %>% 
   select_if(is.numeric) %>% 
   select(-ano) %>% 
-  apply(MARGIN = 2, estatisticas)
+  apply(MARGIN = 2, estatisticas) 
+
 ```
 
 Por fim, se quisermos saber as estatísticas por trimestres ou por setores?
@@ -200,10 +256,10 @@ quant_vars <- dados %>%
                 colnames()
 
 
+quant_vars
 # em seguida, aplicaremos essa função nas variáveis quantitativas pelo grupo selecionado
-by(dados[, quant_vars], dados$trimestre, apply_estatisticas)
+by(dados[, quant_vars], dados$setor_economico_bovespa, apply_estatisticas)
 ```
-
 
 ### 3. Visualizações
 
@@ -212,7 +268,7 @@ Além disso, serve para produzir perguntas e talvez respondê-las.
 
 Podemos produzir diversos gráficos:
 - Barras
-- Histograas
+- Histogramas
 - Box-plot
 - dispersão 
 - linha
@@ -236,28 +292,33 @@ Vamos criar um gráfico de barras para a variável setores.
 # Gráfico de barras em x
 ggplot(dados, aes(x = setor_economico_bovespa)) + 
   geom_bar()
+
+dados %>% 
+  ggplot(aes(y = setor_economico_bovespa)) + 
+  geom_bar()
 ```
 
-Para modificar as cores o eixo, basta adicionar `y = setor_economico_bovespa` como variável
+Para modificar o eixo, basta adicionar `y = setor_economico_bovespa` como variável
 ```{r}
 # Gráfico de barras em y
-ggplot(dados, aes(y = setor_economico_bovespa)) + 
+dados %>% 
+  ggplot(aes(y = ano)) + 
   geom_bar()
 ```
 
 ```{r}
 # Sua vez: Faça o gráfico de barras para a variável ano
-ggplot(dados, aes(y = ano)) + 
-  geom_bar()
+
 ```
 
 Se quiseres adicionar cores, vamos usar o mapeamento da estética dentro da função `ggplot` com o argumento `fill = setor_economico_bovespa` . Dessa maneira ele preenche com cores.
 
 ```{r}
 # Gráfico de barras com cores para os setores
-ggplot(dados, aes(y= setor_economico_bovespa, fill = setor_economico_bovespa)) + 
-  geom_bar() + 
-  guides(fill = FALSE) # remover a legenda das cores
+dados %>% 
+  ggplot(aes(y = setor_economico_bovespa, fill = setor_economico_bovespa)) + 
+  geom_bar() +
+  guides(fill = FALSE)
 ```
 
 #### 3.2 Gráfico Histograma 
@@ -269,7 +330,8 @@ Função: `geom_histogram()`
 **Histograma da variável roa**
 ```{r}
 # Histograma do ROA
-ggplot(dados, aes(roa)) + 
+dados %>% 
+  ggplot(aes(x=roa)) + 
   geom_histogram()
 ```
 
@@ -288,11 +350,12 @@ roa_min <- -1.5*IQR(dados$roa)
 # Filtro
 dados <- dados %>% 
   filter(roa > roa_min & roa < roa_max)
+
 # Gráfico
-ggplot(dados, aes(roa)) + 
+dados %>% 
+  ggplot(aes(x=roa)) + 
   geom_histogram()
 ```
-
 
 
 ```{r}
@@ -303,12 +366,11 @@ mb_min <- -1.5*IQR(dados$market_to_book)
 # filtro
 dados <- dados %>% 
   filter(market_to_book>mb_min & market_to_book<mb_max)
-
 # gráfico
-ggplot(dados, aes(market_to_book))+
+ggplot(dados, aes(x=market_to_book))+
   geom_histogram()
-```
 
+```
 
 #### 3.3 Gráfico box-plot
 
@@ -316,7 +378,8 @@ Detalha a distribuição dos dados identificando os valores máximos e mínimos 
 
 ```{r}
 # Boxplot do ativo total
-ggplot(d, aes(y=ativo_total)) + 
+dados %>% 
+  ggplot(aes(x=ativo_total)) + 
   geom_boxplot()
 ```
 Verificamos que esses dados muitos valores extremos. Além disso, é possível criar boxplot por grupos de setores ou trimestres.
@@ -325,15 +388,17 @@ A pergunta poderia ser: O ROA varia entre os setores econômicos bovespa?
 
 ```{r}
 # boxplot do ROA em funcao dos setores
-ggplot(dados, aes(x = ativo_total, fill = setor_economico_bovespa)) + 
-  geom_boxplot() 
+dados %>% 
+  ggplot(aes(y=ativo_total, fill = setor_economico_bovespa)) + 
+  geom_boxplot()
 ```
 
 Responda a pergunta: O Endividamento varia entre os trimestres?
 
 ```{r}
 # Endividamento diferente entre os setores
-ggplot(dados, aes(x = endividamento, fill = trimestre)) + 
+dados %>% 
+  ggplot(aes(x = endividamento, fill = trimestre)) + 
   geom_boxplot()
 ```
 
@@ -346,9 +411,8 @@ endiv_min <- -1.5*IQR(dados$endividamento)
 
 dados <- dados %>% 
   filter(endividamento > endiv_min & endividamento < endiv_max)
-
 # gráfico
-ggplot(dados, aes(x = endividamento, fill = trimestre))+
+ggplot(dados, aes(y = endividamento, fill = trimestre))+
   geom_boxplot()
 ```
 
@@ -360,14 +424,17 @@ O gráfico de dispersão é utilizado desejamos criar um gráfico a partir de du
 
 Vamos visualizar o roa em função do endividamento:
 ```{r}
-ggplot(dados, aes(x = endividamento, y = roa)) + 
+
+dados %>% 
+  ggplot(aes(x = endividamento, y = roa)) + 
   geom_point()
 ```
 
 Não conseguimos verificar um padrão. É necessário investigar se difere entre os setores. Utilizaremos o parâmetro `colour`. 
 
 ```{r}
-ggplot(dados, aes(x = endividamento, y = roa, colour = setor_economico_bovespa)) + 
+dados %>% 
+  ggplot(aes(x = endividamento, y = roa, colour = setor_economico_bovespa)) + 
   geom_point()
 ```
 
@@ -375,9 +442,10 @@ Ainda fica difícil investigar diferenças.
 Podemos adicionar retas de regressões lineares, a partir da função `geom_smooth(method = lm)`.
 
 ```{r}
-ggplot(dados, aes(x = endividamento, y = roa, colour = setor_economico_bovespa)) + 
+dados %>% 
+  ggplot(aes(x = endividamento, y = roa, colour = setor_economico_bovespa)) + 
   geom_point() +
-  geom_smooth(method = lm)
+  geom_smooth(method =lm)
 ```
 
 Nota-se, portanto, que as retas diferem entre os setores, o que poderia indicar diferentes relações do endividamento e roa. 
@@ -385,27 +453,25 @@ Nota-se, portanto, que as retas diferem entre os setores, o que poderia indicar 
 Agora, verifique a relação entre ativo total e margem_operacional e detalhe os setores.
 
 ```{r}
-ggplot(dados, aes(x = ativo_total, y = margem_operacional, colour = setor_economico_bovespa)) + 
+# gráfico
+dados %>% 
+  ggplot(aes(x = ativo_total, y = margem_operacional, colour=setor_economico_bovespa))+
   geom_point()
 # Precisamos tratar os outliers da margem operacional
 margem_max <- 1.5*IQR(dados$margem_operacional)
 margem_min <- -1.5*IQR(dados$margem_operacional)
-
+# filtro
 dados <- dados %>% 
   filter(margem_operacional>margem_min & margem_operacional<margem_max)
-
-ggplot(dados, aes(x = ativo_total, y = margem_operacional, colour = setor_economico_bovespa)) + 
+# gráfico
+p <- ggplot(dados, aes(x = ativo_total, y = margem_operacional, colour = setor_economico_bovespa)) + 
   geom_point()
 ```
 Vamos adicionar as retas. 
 ```{r}
 # Vamos adicionar as retas de regressão.
-ggplot(dados, aes(x = ativo_total, y = margem_operacional, colour = setor_economico_bovespa)) + 
-  geom_point() + 
-  geom_smooth(method = lm)
-
+p + geom_smooth(method = lm)
 #Por fim veremos a relação entre endividamento e margem operacional
-ggplot(dados, aes(x = endividamento, y = margem_operacional, colour = setor_economico_bovespa)) + 
-  geom_point() + 
-  geom_smooth(method = lm)
+
+
 ```
